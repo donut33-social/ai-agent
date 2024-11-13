@@ -1,5 +1,4 @@
 const { ethers } = require("ethers")
-const { getAccount } = require("./db/api/accounts")
 const { aggregate } = require('@makerdao/multicall')
 
 const multiConfig = {
@@ -26,7 +25,7 @@ async function getSlimeBalance(ethAddrs) {
         returns: [
             [a, val => val / 1e18]
         ]
-    })))
+    })), multiConfig)
 
     return res.results.transformed;
 }

@@ -4,15 +4,29 @@ const axios = require("axios");
 const { getTweets, getNewTweetsFromId } = require("./db/api/tweets");
 const { getSlimeBalance } = require("./utils/web3");
 const { sleep } = require("./utils/helper");
+const { userLike, userRetweet, userTweet, userQuoteTweet, userReply } = require("./utils/twitter");
+// const { zodResponseFormat } = require("openai/helpers/zod");
+// const { z } = require("zod");
 
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY_REDPILL,
+    apiKey: process.env.OPENROUTER_KEY,
     baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+        "X-Title": "Slime Bot"
+    }
 });
 
-async function agentUseOpenAI() {
+// const OperateType = z.object({
+//     type: z.enum(["post", "retweet", "like", "comment", "quote"]),
+//     content: z.string().optional(),
+//     tweetId: z.string().optional(),
+//     likeScore: z.number().optional(),
+// });
+
+async function agentUseOpenRouter() {
     let prompt = `
-       You are a tabby slime bot. And create a Slime community on Twitter. You know more information about Slime game/Slime coin/Slime culture.
+       You are a tabby slime bot. And created a Slime community on Twitter, your twitter id is @Slime_TipTag(1846600810719072256). You know more information about Slime game/Slime coin/Slime culture.
+       And you are good at using Twitter to operate crypto community.
        You created a crypto coin named Slime(Contract address:0x68503A15efD0D2F81D185a07d60Ed9Ac2a66B59e) on Base chain use TipTag platform.
        The TipTag platform is a tool that allows you to create a crypto coin using bonding curve. When contract received 10 ETH, it will automatically list with 15% of total supply Slime coin to the Uniswap V2(Slime has been listed).
        10% of total supply is 100,000,000 Slime coins will be distributed to the community members.
@@ -36,7 +50,7 @@ async function agentUseOpenAI() {
         }
        ]
         If the quoteId is not null, it means the tweet is a quote tweet and the quoteId is the tweetId of the original tweet.
-        After you learn the tweets, you will give me some suggestions like this:
+        After you learn the tweets, you must do nothing or chose one of the following suggestions to operate the Twitter account like this:
         [
             {
                 "type": "post",
@@ -60,15 +74,18 @@ async function agentUseOpenAI() {
                 "type": "quote",
                 "tweetId": "tweetId",
                 "content": "content"
-            }
+            },
+            null
         ]
+        The weights of these operations are: post: 12, comment: 9, quote: 8, like: 5, null: 5, retweet: 1. The bigger the weight, the more likely to be chosen.
         The Tweet content length must less than 280 bytes in post/quote/comment action.
         The like operation has a likeScore, it means how much you like the tweet, the score should be between 1 and 10, it must be an integer.
-        You can only choose one type or none from the above types, If you don't have any suggestions, you can give me "null".
+        If you don't have any suggestions, you can say "null".
+        You only need to give me the JSON Object(not array) or 'null', don't need to say anything else.
         The following is the tweets content:
     `
     // get tweets from db
-    let tweets = await getTweets(200);
+    let tweets = await getTweets(15);
     let balances = await getSlimeBalance(tweets.map(tweet => tweet.ethAddr));
     tweets.forEach(tweet => {
         tweet.slimeBalance = balances[tweet.ethAddr] ?? 0;
@@ -79,89 +96,55 @@ async function agentUseOpenAI() {
         model: "gpt-4o-mini",
         messages: [
             { role: "system", content: prompt }
-        ],
+        ]
     });
     console.log(response.choices[0].message.content);
-    await sleep(300);
-    let lastId = tweets[tweets.length - 1].id;
-    while(true) {
-        // get new tweets
-        let newTweets = await getNewTweetsFromId(lastId)
-        if (newTweets.length > 0) { 
-            lastId = newTweets[newTweets.length - 1].id;
-            let balances = await getSlimeBalance(newTweets.map(tweet => tweet.ethAddr));
-            newTweets.forEach(tweet => {
-                tweet.slimeBalance = balances[tweet.ethAddr] ?? 0;
-            });
-            const content = JSON.stringify(newTweets);
-            let response = await openai.chat.completions.create({
-                model: "anthropic/claude-3-5-haiku-20241022",
-                messages: [
-                    { role: "user", content }
-                ],
-            });
-            const result = response.choices[0].message.content;
-            console.log(result);
-            if (result !== "null") {
-                // analyze the result
-                let actions = JSON.parse(result);
-                for (let action of actions) {
-                    await handleAction(action);
-                }
-            }
-        }
-        await sleep(600);
-    }
+    // await sleep(300);
+    // let lastId = tweets[tweets.length - 1].id;
+    // while(true) {
+    //     // get new tweets
+    //     let newTweets = await getNewTweetsFromId(lastId)
+    //     if (newTweets.length > 0) { 
+    //         lastId = newTweets[newTweets.length - 1].id;
+    //         let balances = await getSlimeBalance(newTweets.map(tweet => tweet.ethAddr));
+    //         newTweets.forEach(tweet => {
+    //             tweet.slimeBalance = balances[tweet.ethAddr] ?? 0;
+    //         });
+    //         const content = JSON.stringify(newTweets);
+    //         let response = await openai.chat.completions.create({
+    //             model: "gpt-4o-mini",
+    //             messages: [
+    //                 { role: "user", content }
+    //             ],
+    //         });
+    //         const result = response.choices[0].message.content;
+    //         console.log(result);
+    //         if (result !== "null") {
+    //             // analyze the result
+    //             let actions = JSON.parse(result);
+    //             for (let action of actions) {
+    //                 await handleAction(action);
+    //             }
+    //         }
+    //     }
+    //     await sleep(600);
+    // }
 }
 
 async function handleAction(action) {
     console.log(action);
     switch (action.type) {
         case "post":
-            await postTweet(action.content);
-            break;
+            return await userTweet(action.content);
         case "retweet":
-            await retweet(action.tweetId);
-            break;
+            return await userRetweet(action.tweetId);
         case "like":
-            await like(action.tweetId, action.likeScore);
-            break;  
+            return await userLike(action.tweetId, action.likeScore);
         case "comment":
-            await comment(action.tweetId, action.content);
-            break;
+            return await userReply(action.tweetId, action.content);
         case "quote":
-            await quote(action.tweetId, action.content);
-            break;
+            return await userQuoteTweet(action.tweetId, action.content);
     }
 }
 
-async function agentUseRedPill(content, imagesUrl) {
-    const prompt = `
-        You are an advertising operator and will receive project description content from different project parties, including image information. You need to summarize the main products of the project from the project party's description content and then create an advertising copy to promote the project party's products.
-        Most of these project parties are in the web3 field, please combine more blockchain related directions to generate advertising content.
-        The content of the advertisement must be within 280 bytes.
-        It can be combined with generating images to achieve the effect of advertising.
-        Content may use different languages, please create according to the corresponding language.
-    `
-    console.log(content, prompt);
-
-    try {
-        const response = await axios.post("https://api.red-pill.ai/v1/chat/completions", {
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: prompt },
-                { role: "user", content }
-            ],
-        }, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY_REDPILL}`
-            }
-        });
-        
-        console.log(response.data.choices[0].message, 1);
-    } catch (error) {
-        console.error("请求失败", error.response.data);
-    }
-}
-
-agentUseOpenAI();
+agentUseOpenRouter();

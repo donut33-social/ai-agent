@@ -18,6 +18,11 @@ const getNewTweetsFromId = async (id) => {
     return emptyOrRows(result);
 };
 
+const newTweet = async (content) => { 
+    // check op/vp
+    
+}
+
 module.exports = {
     getTweets,
     getNewTweetsFromId
